@@ -92,7 +92,9 @@ html, body {
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
+    overflow: hidden;
     z-index: 10;
+    transition: width var(--transition-normal);
 }
 
 .brand {
@@ -128,6 +130,58 @@ html, body {
     color: var(--accent-cyan);
     border: 1px solid rgba(113, 131, 85, 0.25);
     box-shadow: 0 0 8px rgba(113, 131, 85, 0.12);
+}
+
+.sidebar-toggle {
+    width: 32px;
+    height: 32px;
+    margin-left: auto;
+    padding: 0;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.sidebar-toggle:hover {
+    color: var(--accent-purple);
+    background: rgba(243, 210, 190, 0.45);
+}
+
+.sidebar-toggle svg {
+    transition: transform var(--transition-normal);
+}
+
+.sidebar.collapsed {
+    width: 64px;
+}
+
+.sidebar.collapsed .brand {
+    justify-content: center;
+    padding: 24px 16px;
+    border-bottom-color: transparent;
+}
+
+.sidebar.collapsed .brand-logo,
+.sidebar.collapsed .brand h1,
+.sidebar.collapsed .badge,
+.sidebar.collapsed .action-section,
+.sidebar.collapsed .sidebar-footer {
+    display: none;
+}
+
+.sidebar.collapsed .sidebar-toggle {
+    margin-left: 0;
+}
+
+.sidebar.collapsed .sidebar-toggle svg {
+    transform: rotate(180deg);
 }
 
 .action-section {

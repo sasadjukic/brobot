@@ -5,6 +5,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const sendBtn = document.getElementById("send-btn");
     const chatMessages = document.getElementById("chat-messages");
     const mainContent = document.querySelector(".main-content");
+    const sidebar = document.querySelector(".sidebar");
+    const sidebarToggle = document.getElementById("sidebar-toggle");
     const newChatBtn = document.getElementById("new-chat-btn");
 
     // Context UI elements
@@ -70,9 +72,42 @@ document.addEventListener("DOMContentLoaded", () => {
     ];
 
     // 1. Initial setup
+    restoreSidebarState();
     renderWelcomeMessage();
     fetchModels();
     updateContextState();
+
+    function setSidebarCollapsed(collapsed) {
+        sidebar.classList.toggle("collapsed", collapsed);
+        sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
+
+        const action = collapsed ? "Expand" : "Collapse";
+        sidebarToggle.title = `${action} side panel`;
+        sidebarToggle.setAttribute("aria-label", `${action} side panel`);
+    }
+
+    function restoreSidebarState() {
+        let collapsed = false;
+
+        try {
+            collapsed = localStorage.getItem("brobot-sidebar-collapsed") === "true";
+        } catch (error) {
+            // Browser storage is optional.
+        }
+
+        setSidebarCollapsed(collapsed);
+    }
+
+    sidebarToggle.addEventListener("click", () => {
+        const collapsed = !sidebar.classList.contains("collapsed");
+        setSidebarCollapsed(collapsed);
+
+        try {
+            localStorage.setItem("brobot-sidebar-collapsed", String(collapsed));
+        } catch (error) {
+            // The toggle still works when browser storage is unavailable.
+        }
+    });
 
     function pickGreeting() {
         const storageKey = "brobot-last-greeting";
