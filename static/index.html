@@ -81,7 +81,7 @@
         </aside>
 
         <!-- Main Chat Area -->
-        <main class="main-content">
+        <main class="main-content welcome-mode">
             <!-- Header bar -->
             <header class="chat-header">
                 <div class="header-left">
@@ -106,13 +106,8 @@
             <div class="chat-messages-container" id="chat-messages">
                 <!-- Welcome Message -->
                 <div class="welcome-container" id="welcome-message">
-                    <div class="welcome-logo">
-                        <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="1.5" fill="none">
-                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                        </svg>
-                    </div>
-                    <h2>Welcome to BroBot Chat</h2>
-                    <p>Connect and interact with your Ollama models. To get started, select an active model from the dropdown below and type your message.</p>
+                    <h2 id="welcome-title">What can Bro do for you today?</h2>
+                    <p id="welcome-subtitle">Pick a model and hand over the problem. Bro brought snacks.</p>
                 </div>
             </div>
 

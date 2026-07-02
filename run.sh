@@ -3,7 +3,7 @@
 # Navigate to the script directory
 cd "$(dirname "$0")"
 
-echo "=== Antigravity Chatbot Startup ==="
+echo "=== BroBot Startup ==="
 
 # Check if virtualenv exists
 if [ -d "bin" ] && [ -f "bin/activate" ]; then

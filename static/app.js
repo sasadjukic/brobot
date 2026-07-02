@@ -7,7 +7,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const userInput = document.getElementById("user-input");
     const sendBtn = document.getElementById("send-btn");
     const chatMessages = document.getElementById("chat-messages");
-    const welcomeMessage = document.getElementById("welcome-message");
+    const mainContent = document.querySelector(".main-content");
     const newChatBtn = document.getElementById("new-chat-btn");
     const clearHistoryBtn = document.getElementById("clear-history-btn");
 
@@ -35,9 +35,96 @@ document.addEventListener("DOMContentLoaded", () => {
     let isGenerating = false;
     let hasContextLoaded = false;
 
+    const greetings = [
+        {
+            title: "What can Bro do for you today?",
+            subtitle: "Pick a model and hand over the problem. Bro brought snacks."
+        },
+        {
+            title: "BroBot reporting for duty-ish.",
+            subtitle: "Point me at a question and I’ll press the important-looking buttons."
+        },
+        {
+            title: "Welcome back, carbon-based colleague.",
+            subtitle: "Choose a model and let’s make the computers do something useful."
+        },
+        {
+            title: "Got problems? Bro has tokens.",
+            subtitle: "Drop a question below. Results may contain suspicious amounts of confidence."
+        },
+        {
+            title: "The Bro is in.",
+            subtitle: "No appointment necessary—just select a model and start typing."
+        },
+        {
+            title: "Awaken, tiny thinking machine!",
+            subtitle: "BroBot is caffeinated, calibrated, and mostly house-trained."
+        },
+        {
+            title: "Your local models have been summoned.",
+            subtitle: "Tell Bro what needs building, fixing, explaining, or blaming."
+        },
+        {
+            title: "BroBot online. Wisdom pending.",
+            subtitle: "Select a model and let’s turn vague ideas into slightly less vague ideas."
+        },
+        {
+            title: "Hello there. Bro there.",
+            subtitle: "Ask away—no question is too strange, though some answers might be."
+        },
+        {
+            title: "Ready when you are, chief.",
+            subtitle: "Choose your model. Bro will handle the dramatic keyboard noises."
+        }
+    ];
+
     // 1. Initial setup
+    renderWelcomeMessage();
     fetchModels();
     updateContextUI();
+
+    function pickGreeting() {
+        const storageKey = "brobot-last-greeting";
+        let previousIndex = -1;
+
+        try {
+            previousIndex = Number.parseInt(localStorage.getItem(storageKey), 10);
+        } catch (error) {
+            // The greeting still works when browser storage is unavailable.
+        }
+
+        let nextIndex;
+        do {
+            nextIndex = Math.floor(Math.random() * greetings.length);
+        } while (greetings.length > 1 && nextIndex === previousIndex);
+
+        try {
+            localStorage.setItem(storageKey, String(nextIndex));
+        } catch (error) {
+            // Browser storage is optional.
+        }
+
+        return greetings[nextIndex];
+    }
+
+    function renderWelcomeMessage() {
+        const greeting = pickGreeting();
+        let welcome = document.getElementById("welcome-message");
+
+        if (!welcome) {
+            welcome = document.createElement("div");
+            welcome.className = "welcome-container";
+            welcome.id = "welcome-message";
+            welcome.innerHTML = `
+                <h2 id="welcome-title"></h2>
+                <p id="welcome-subtitle"></p>
+            `;
+            chatMessages.appendChild(welcome);
+        }
+
+        welcome.querySelector("#welcome-title").textContent = greeting.title;
+        welcome.querySelector("#welcome-subtitle").textContent = greeting.subtitle;
+    }
 
     // 2. Load Ollama models from API
     async function fetchModels() {
@@ -125,10 +212,9 @@ document.addEventListener("DOMContentLoaded", () => {
         
         if (!text || !model) return;
 
-        // Hide welcome screen
-        if (welcomeMessage) {
-            welcomeMessage.classList.add("hidden");
-        }
+        // Move the input to its conversation position and hide the welcome screen.
+        mainContent.classList.remove("welcome-mode");
+        document.getElementById("welcome-message")?.classList.add("hidden");
 
         // Add user message to UI
         appendMessage("user", text);
@@ -383,21 +469,8 @@ document.addEventListener("DOMContentLoaded", () => {
     function clearSession() {
         conversationHistory = [];
         chatMessages.innerHTML = "";
-        
-        // Re-append welcome card
-        const welcome = document.createElement("div");
-        welcome.className = "welcome-container";
-        welcome.id = "welcome-message";
-        welcome.innerHTML = `
-            <div class="welcome-logo">
-                <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="1.5" fill="none">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                </svg>
-            </div>
-            <h2>Welcome to Antigravity Chat</h2>
-            <p>Connect and interact with your local Ollama models. To get started, select an active model from the dropdown below and type your message.</p>
-        `;
-        chatMessages.appendChild(welcome);
+        mainContent.classList.add("welcome-mode");
+        renderWelcomeMessage();
         validateSendState();
     }
 

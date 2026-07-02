@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 
-app = FastAPI(title="Antigravity Chatbot")
+app = FastAPI(title="BroBot")
 
 # CORS middleware for testing / local requests
 app.add_middleware(
