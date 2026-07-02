@@ -1,15 +1,11 @@
 document.addEventListener("DOMContentLoaded", () => {
     // DOM Elements
     const modelSelect = document.getElementById("model-select");
-    const activeModelDisplay = document.getElementById("active-model-display");
-    const headerModelName = document.getElementById("header-model-name");
-    const hostStatus = document.getElementById("host-status");
     const userInput = document.getElementById("user-input");
     const sendBtn = document.getElementById("send-btn");
     const chatMessages = document.getElementById("chat-messages");
     const mainContent = document.querySelector(".main-content");
     const newChatBtn = document.getElementById("new-chat-btn");
-    const clearHistoryBtn = document.getElementById("clear-history-btn");
 
     // Context UI elements
     const contextMenuBtn = document.getElementById("context-menu-btn");
@@ -17,11 +13,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnUploadFile = document.getElementById("btn-upload-file");
     const btnPasteText = document.getElementById("btn-paste-text");
     const fileInput = document.getElementById("file-input");
-    const contextEmpty = document.getElementById("context-empty");
-    const contextActive = document.getElementById("context-active");
-    const contextSizeDisplay = document.getElementById("context-size-display");
-    const contextPreviewDisplay = document.getElementById("context-preview-display");
-    const clearContextBtn = document.getElementById("clear-context-btn");
 
     // Text Context Modal elements
     const textModal = document.getElementById("text-modal");
@@ -81,7 +72,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // 1. Initial setup
     renderWelcomeMessage();
     fetchModels();
-    updateContextUI();
+    updateContextState();
 
     function pickGreeting() {
         const storageKey = "brobot-last-greeting";
@@ -129,9 +120,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // 2. Load Ollama models from API
     async function fetchModels() {
         try {
-            hostStatus.textContent = "Checking...";
-            hostStatus.className = "status-value";
-            
             const response = await fetch("/api/models");
             if (!response.ok) throw new Error("Backend response error");
             
@@ -153,18 +141,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 modelSelect.selectedIndex = 1;
                 handleModelChange();
                 
-                hostStatus.textContent = "Online";
-                hostStatus.className = "status-value status-online";
             } else {
-                hostStatus.textContent = "No Models";
-                hostStatus.className = "status-value status-offline";
-                headerModelName.textContent = "No local models found";
+                modelSelect.innerHTML = '<option value="" disabled selected>No local models found</option>';
             }
         } catch (error) {
             console.error("Failed to fetch models:", error);
-            hostStatus.textContent = "Offline";
-            hostStatus.className = "status-value status-offline";
-            headerModelName.textContent = "Connection failed";
+            modelSelect.innerHTML = '<option value="" disabled selected>Unable to load models</option>';
         }
     }
 
@@ -172,8 +154,6 @@ document.addEventListener("DOMContentLoaded", () => {
     function handleModelChange() {
         const selectedModel = modelSelect.value;
         if (selectedModel) {
-            activeModelDisplay.textContent = selectedModel;
-            headerModelName.textContent = selectedModel;
             validateSendState();
         }
     }
@@ -380,7 +360,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await response.json();
             if (response.ok) {
                 alert(`Loaded file: ${file.name}`);
-                updateContextUI();
+                updateContextState();
             } else {
                 alert(`Upload failed: ${data.detail}`);
             }
@@ -420,7 +400,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await response.json();
             if (response.ok) {
                 textModal.classList.add("hidden");
-                updateContextUI();
+                updateContextState();
             } else {
                 alert(`Context error: ${data.detail}`);
             }
@@ -430,38 +410,16 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // Clear context from sidebar
-    clearContextBtn.addEventListener("click", async () => {
-        try {
-            const response = await fetch("/api/context", { method: "DELETE" });
-            if (response.ok) {
-                updateContextUI();
-            }
-        } catch (e) {
-            console.error("Error clearing context:", e);
-        }
-    });
-
-    // Load active context state and update sidebar display
-    async function updateContextUI() {
+    // Keep request state synchronized with the active backend context.
+    async function updateContextState() {
         try {
             const response = await fetch("/api/context");
             if (!response.ok) return;
             
             const data = await response.json();
-            if (data.active) {
-                hasContextLoaded = true;
-                contextEmpty.classList.add("hidden");
-                contextActive.classList.remove("hidden");
-                contextSizeDisplay.textContent = formatBytes(data.length);
-                contextPreviewDisplay.textContent = data.preview;
-            } else {
-                hasContextLoaded = false;
-                contextEmpty.classList.remove("hidden");
-                contextActive.classList.add("hidden");
-            }
+            hasContextLoaded = Boolean(data.active);
         } catch (e) {
-            console.error("Error updating context UI:", e);
+            console.error("Error updating context state:", e);
         }
     }
 
@@ -475,20 +433,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     newChatBtn.addEventListener("click", clearSession);
-    clearHistoryBtn.addEventListener("click", clearSession);
 
     // Helpers
     function scrollToBottom() {
         chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
-
-    function formatBytes(bytes, decimals = 2) {
-        if (!+bytes) return '0 Bytes';
-        const k = 1024;
-        const dm = decimals < 0 ? 0 : decimals;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
     }
 
     function escapeHtml(text) {
