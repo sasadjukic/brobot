@@ -8,6 +8,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const sidebar = document.querySelector(".sidebar");
     const sidebarToggle = document.getElementById("sidebar-toggle");
     const newChatBtn = document.getElementById("new-chat-btn");
+    const newFolderBtn = document.getElementById("new-folder-btn");
     const chatHistoryList = document.getElementById("chat-history-list");
 
     // Context UI elements
@@ -24,6 +25,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const modalSaveBtn = document.getElementById("modal-save-btn");
     const modalTextInput = document.getElementById("modal-text-input");
 
+    // Folder Modal elements
+    const folderModal = document.getElementById("folder-modal");
+    const folderModalCloseBtn = document.getElementById("folder-modal-close-btn");
+    const folderModalCancelBtn = document.getElementById("folder-modal-cancel-btn");
+    const folderModalCreateBtn = document.getElementById("folder-modal-create-btn");
+    const folderNameInput = document.getElementById("folder-name-input");
+
     // App State
     let conversationHistory = [];
     let isGenerating = false;
@@ -31,6 +39,10 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentChatId = null;
     let currentChatTitle = "";
     let currentChatSummary = null;
+    let currentChatFolderId = null;
+    let currentChatModel = null;
+    let savedChats = [];
+    let savedFolders = [];
 
     const greetings = [
         {
@@ -204,40 +216,154 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!chatHistoryList) return;
 
         try {
-            const response = await fetch("/api/chats");
-            if (!response.ok) throw new Error("Unable to load saved sessions");
+            const [chatsResponse, foldersResponse] = await Promise.all([
+                fetch("/api/chats"),
+                fetch("/api/folders")
+            ]);
+            if (!chatsResponse.ok || !foldersResponse.ok) {
+                throw new Error("Unable to load saved library");
+            }
 
-            const data = await response.json();
-            renderChatHistory(data.chats || []);
+            const chatsData = await chatsResponse.json();
+            const foldersData = await foldersResponse.json();
+            savedChats = chatsData.chats || [];
+            savedFolders = foldersData.folders || [];
+            renderChatHistory();
         } catch (error) {
             console.error("Chat history load failed:", error);
             chatHistoryList.innerHTML = '<div class="chat-history-empty">Saved sessions unavailable.</div>';
         }
     }
 
-    function renderChatHistory(chats) {
+    function renderChatHistory() {
         if (!chatHistoryList) return;
 
         chatHistoryList.innerHTML = "";
 
-        if (!chats.length) {
-            chatHistoryList.innerHTML = '<div class="chat-history-empty">No saved sessions yet.</div>';
+        if (!savedChats.length && !savedFolders.length) {
+            chatHistoryList.innerHTML = '<div class="chat-history-empty">No saved sessions or folders yet.</div>';
             return;
         }
 
-        chats.forEach(chat => {
-            const item = document.createElement("button");
-            item.type = "button";
-            item.className = `chat-history-item${chat.id === currentChatId ? " active" : ""}`;
-            item.dataset.chatId = chat.id;
-            item.title = chat.title;
-            item.innerHTML = `
-                <span class="chat-history-title">${escapeHtml(chat.title)}</span>
-                <span class="chat-history-meta">${formatChatMeta(chat)}</span>
-            `;
-            item.addEventListener("click", () => openChat(chat.id));
-            chatHistoryList.appendChild(item);
+        const chatsByFolder = groupChatsByFolder(savedChats);
+        const rootFolders = savedFolders.filter(folder => !folder.parent_id);
+
+        rootFolders.forEach(folder => {
+            chatHistoryList.appendChild(renderFolderGroup(folder, chatsByFolder, 0));
         });
+
+        const unfiledChats = chatsByFolder.get(null) || [];
+        if (unfiledChats.length || savedFolders.length) {
+            chatHistoryList.appendChild(renderChatGroup({
+                id: null,
+                name: "Unfiled",
+                chats: unfiledChats,
+                depth: 0
+            }));
+        }
+    }
+
+    function groupChatsByFolder(chats) {
+        const chatsByFolder = new Map();
+        chats.forEach(chat => {
+            const folderKey = chat.folder_id || null;
+            if (!chatsByFolder.has(folderKey)) {
+                chatsByFolder.set(folderKey, []);
+            }
+            chatsByFolder.get(folderKey).push(chat);
+        });
+        return chatsByFolder;
+    }
+
+    function renderFolderGroup(folder, chatsByFolder, depth) {
+        const wrapper = renderChatGroup({
+            id: folder.id,
+            name: folder.name,
+            chats: chatsByFolder.get(folder.id) || [],
+            depth
+        });
+
+        const childFolders = savedFolders.filter(child => child.parent_id === folder.id);
+        childFolders.forEach(childFolder => {
+            wrapper.appendChild(renderFolderGroup(childFolder, chatsByFolder, depth + 1));
+        });
+
+        return wrapper;
+    }
+
+    function renderChatGroup({ id, name, chats, depth }) {
+        const group = document.createElement("div");
+        group.className = "chat-folder-group";
+        group.style.setProperty("--folder-depth", String(depth));
+
+        const header = document.createElement("div");
+        header.className = "chat-folder-header";
+
+        const title = document.createElement("span");
+        title.className = "chat-folder-title";
+        title.textContent = name;
+
+        const count = document.createElement("span");
+        count.className = "chat-folder-count";
+        count.textContent = String(chats.length);
+
+        const assignBtn = document.createElement("button");
+        assignBtn.type = "button";
+        assignBtn.className = "chat-folder-action";
+        assignBtn.title = id ? `Move active session to ${name}` : "Move active session to Unfiled";
+        assignBtn.setAttribute("aria-label", assignBtn.title);
+        assignBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5z"></path>
+                <path d="m12 10 3 3-3 3"></path>
+                <path d="M8 13h7"></path>
+            </svg>
+        `;
+        assignBtn.disabled = !currentChatId || currentChatFolderId === id;
+        assignBtn.addEventListener("click", () => moveCurrentChatToFolder(id));
+
+        header.appendChild(title);
+        header.appendChild(count);
+        header.appendChild(assignBtn);
+        group.appendChild(header);
+
+        const items = document.createElement("div");
+        items.className = "chat-folder-items";
+
+        if (chats.length) {
+            chats.forEach(chat => {
+                items.appendChild(renderChatHistoryItem(chat));
+            });
+        } else {
+            const empty = document.createElement("div");
+            empty.className = "chat-folder-empty";
+            empty.textContent = "No sessions";
+            items.appendChild(empty);
+        }
+
+        group.appendChild(items);
+        return group;
+    }
+
+    function renderChatHistoryItem(chat) {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = `chat-history-item${chat.id === currentChatId ? " active" : ""}`;
+        item.dataset.chatId = chat.id;
+        item.title = chat.title;
+
+        const title = document.createElement("span");
+        title.className = "chat-history-title";
+        title.textContent = chat.title;
+
+        const meta = document.createElement("span");
+        meta.className = "chat-history-meta";
+        meta.textContent = formatChatMeta(chat);
+
+        item.appendChild(title);
+        item.appendChild(meta);
+        item.addEventListener("click", () => openChat(chat.id));
+        return item;
     }
 
     function formatChatMeta(chat) {
@@ -263,6 +389,8 @@ document.addEventListener("DOMContentLoaded", () => {
             currentChatId = chat.id;
             currentChatTitle = chat.title || "";
             currentChatSummary = chat.summary || null;
+            currentChatFolderId = chat.folder_id || null;
+            currentChatModel = chat.model || null;
             conversationHistory = Array.isArray(chat.messages) ? chat.messages : [];
 
             if (chat.model && Array.from(modelSelect.options).some(option => option.value === chat.model)) {
@@ -308,7 +436,8 @@ document.addEventListener("DOMContentLoaded", () => {
             title: currentChatTitle || deriveCurrentChatTitle(),
             model,
             messages: conversationHistory,
-            summary: currentChatSummary
+            summary: currentChatSummary,
+            folder_id: currentChatFolderId
         };
 
         try {
@@ -324,11 +453,91 @@ document.addEventListener("DOMContentLoaded", () => {
             currentChatId = savedChat.id;
             currentChatTitle = savedChat.title;
             currentChatSummary = savedChat.summary || null;
+            currentChatFolderId = savedChat.folder_id || null;
+            currentChatModel = savedChat.model || model || null;
             loadChatHistory();
         } catch (error) {
             console.error("Chat save failed:", error);
         }
     }
+
+    function openFolderModal() {
+        folderNameInput.value = "";
+        folderModal.classList.remove("hidden");
+        folderNameInput.focus();
+    }
+
+    function closeFolderModal() {
+        folderModal.classList.add("hidden");
+        folderNameInput.value = "";
+    }
+
+    async function createFolder() {
+        const trimmedName = folderNameInput.value.trim();
+        if (!trimmedName) return;
+
+        try {
+            folderModalCreateBtn.disabled = true;
+            const response = await fetch("/api/folders", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: trimmedName })
+            });
+
+            if (!response.ok) throw new Error("Unable to create folder");
+
+            closeFolderModal();
+            await loadChatHistory();
+        } catch (error) {
+            console.error("Folder create failed:", error);
+            alert("Could not create that folder.");
+        } finally {
+            folderModalCreateBtn.disabled = false;
+        }
+    }
+
+    async function moveCurrentChatToFolder(folderId) {
+        if (!currentChatId) return;
+
+        try {
+            const response = await fetch(`/api/chats/${encodeURIComponent(currentChatId)}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    title: currentChatTitle || deriveCurrentChatTitle(),
+                    model: currentChatModel || modelSelect.value || null,
+                    messages: conversationHistory,
+                    folder_id: folderId,
+                    summary: currentChatSummary
+                })
+            });
+
+            if (!response.ok) throw new Error("Unable to move session");
+
+            const savedChat = await response.json();
+            currentChatFolderId = savedChat.folder_id || null;
+            currentChatTitle = savedChat.title || currentChatTitle;
+            currentChatSummary = savedChat.summary || null;
+            currentChatModel = savedChat.model || currentChatModel;
+            await loadChatHistory();
+        } catch (error) {
+            console.error("Move chat failed:", error);
+            alert("Could not move the active session.");
+        }
+    }
+
+    newFolderBtn?.addEventListener("click", openFolderModal);
+    folderModalCloseBtn.addEventListener("click", closeFolderModal);
+    folderModalCancelBtn.addEventListener("click", closeFolderModal);
+    folderModalCreateBtn.addEventListener("click", createFolder);
+    folderNameInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            createFolder();
+        } else if (event.key === "Escape") {
+            closeFolderModal();
+        }
+    });
 
     // 4. Input Textarea Auto-growth & validation
     userInput.addEventListener("input", () => {
@@ -600,6 +809,8 @@ document.addEventListener("DOMContentLoaded", () => {
         currentChatId = null;
         currentChatTitle = "";
         currentChatSummary = null;
+        currentChatFolderId = null;
+        currentChatModel = null;
         chatMessages.innerHTML = "";
         mainContent.classList.add("welcome-mode");
         renderWelcomeMessage();
