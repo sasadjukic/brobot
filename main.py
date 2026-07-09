@@ -44,12 +44,14 @@ class StoredChatPayload(BaseModel):
     model: Optional[str] = None
     messages: List[ChatMessage] = Field(default_factory=list)
     folder_id: Optional[str] = None
+    summary: Optional[str] = None
 
 class StoredChatUpdate(BaseModel):
     title: Optional[str] = None
     model: Optional[str] = None
     messages: Optional[List[ChatMessage]] = None
     folder_id: Optional[str] = None
+    summary: Optional[str] = None
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
@@ -70,11 +72,18 @@ def init_database():
                 model TEXT,
                 messages TEXT NOT NULL,
                 folder_id TEXT,
+                summary TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
             """
         )
+        existing_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(chats)").fetchall()
+        }
+        if "summary" not in existing_columns:
+            conn.execute("ALTER TABLE chats ADD COLUMN summary TEXT")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_chats_updated_at ON chats(updated_at DESC)"
         )
@@ -103,6 +112,7 @@ def row_to_chat(row: sqlite3.Row, include_messages=False):
         "title": row["title"],
         "model": row["model"],
         "folder_id": row["folder_id"],
+        "summary": row["summary"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "message_count": len(messages),
@@ -110,6 +120,12 @@ def row_to_chat(row: sqlite3.Row, include_messages=False):
     if include_messages:
         chat["messages"] = messages
     return chat
+
+def field_was_provided(payload: BaseModel, field_name: str):
+    fields_set = getattr(payload, "model_fields_set", None)
+    if fields_set is None:
+        fields_set = getattr(payload, "__fields_set__", set())
+    return field_name in fields_set
 
 init_database()
 
@@ -172,7 +188,7 @@ async def list_chats():
     with get_db() as conn:
         rows = conn.execute(
             """
-            SELECT id, title, model, messages, folder_id, created_at, updated_at
+            SELECT id, title, model, messages, folder_id, summary, created_at, updated_at
             FROM chats
             ORDER BY updated_at DESC
             """
@@ -188,8 +204,8 @@ async def create_chat(payload: StoredChatPayload):
     with get_db() as conn:
         conn.execute(
             """
-            INSERT INTO chats (id, title, model, messages, folder_id, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO chats (id, title, model, messages, folder_id, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 chat_id,
@@ -197,13 +213,14 @@ async def create_chat(payload: StoredChatPayload):
                 payload.model,
                 dump_messages(payload.messages),
                 payload.folder_id,
+                payload.summary,
                 now,
                 now,
             ),
         )
         row = conn.execute(
             """
-            SELECT id, title, model, messages, folder_id, created_at, updated_at
+            SELECT id, title, model, messages, folder_id, summary, created_at, updated_at
             FROM chats
             WHERE id = ?
             """,
@@ -217,7 +234,7 @@ async def get_chat(chat_id: str):
     with get_db() as conn:
         row = conn.execute(
             """
-            SELECT id, title, model, messages, folder_id, created_at, updated_at
+            SELECT id, title, model, messages, folder_id, summary, created_at, updated_at
             FROM chats
             WHERE id = ?
             """,
@@ -234,7 +251,7 @@ async def update_chat(chat_id: str, payload: StoredChatUpdate):
     with get_db() as conn:
         existing = conn.execute(
             """
-            SELECT id, title, model, messages, folder_id, created_at, updated_at
+            SELECT id, title, model, messages, folder_id, summary, created_at, updated_at
             FROM chats
             WHERE id = ?
             """,
@@ -257,21 +274,22 @@ async def update_chat(chat_id: str, payload: StoredChatUpdate):
         conn.execute(
             """
             UPDATE chats
-            SET title = ?, model = ?, messages = ?, folder_id = ?, updated_at = ?
+            SET title = ?, model = ?, messages = ?, folder_id = ?, summary = ?, updated_at = ?
             WHERE id = ?
             """,
             (
                 title,
-                payload.model if payload.model is not None else existing["model"],
+                payload.model if field_was_provided(payload, "model") else existing["model"],
                 dump_messages(messages),
-                payload.folder_id if payload.folder_id is not None else existing["folder_id"],
+                payload.folder_id if field_was_provided(payload, "folder_id") else existing["folder_id"],
+                payload.summary if field_was_provided(payload, "summary") else existing["summary"],
                 utc_now(),
                 chat_id,
             ),
         )
         row = conn.execute(
             """
-            SELECT id, title, model, messages, folder_id, created_at, updated_at
+            SELECT id, title, model, messages, folder_id, summary, created_at, updated_at
             FROM chats
             WHERE id = ?
             """,
