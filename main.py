@@ -53,6 +53,14 @@ class StoredChatUpdate(BaseModel):
     folder_id: Optional[str] = None
     summary: Optional[str] = None
 
+class FolderPayload(BaseModel):
+    name: str
+    parent_id: Optional[str] = None
+
+class FolderUpdate(BaseModel):
+    name: Optional[str] = None
+    parent_id: Optional[str] = None
+
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -64,6 +72,17 @@ def get_db():
 
 def init_database():
     with get_db() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS folders (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                parent_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS chats (
@@ -84,6 +103,12 @@ def init_database():
         }
         if "summary" not in existing_columns:
             conn.execute("ALTER TABLE chats ADD COLUMN summary TEXT")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON folders(parent_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_folders_name ON folders(name)"
+        )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_chats_updated_at ON chats(updated_at DESC)"
         )
@@ -121,11 +146,51 @@ def row_to_chat(row: sqlite3.Row, include_messages=False):
         chat["messages"] = messages
     return chat
 
+def row_to_folder(row: sqlite3.Row):
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "parent_id": row["parent_id"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
 def field_was_provided(payload: BaseModel, field_name: str):
     fields_set = getattr(payload, "model_fields_set", None)
     if fields_set is None:
         fields_set = getattr(payload, "__fields_set__", set())
     return field_name in fields_set
+
+def normalize_folder_name(name: Optional[str]):
+    if name is None:
+        return None
+    normalized = name.strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Folder name cannot be empty.")
+    return normalized
+
+def validate_folder_reference(conn: sqlite3.Connection, folder_id: Optional[str], field_name="folder_id"):
+    if folder_id is None:
+        return
+    exists = conn.execute(
+        "SELECT 1 FROM folders WHERE id = ?",
+        (folder_id,),
+    ).fetchone()
+    if exists is None:
+        raise HTTPException(status_code=400, detail=f"Unknown {field_name}.")
+
+def validate_folder_parent(conn: sqlite3.Connection, folder_id: str, parent_id: Optional[str]):
+    validate_folder_reference(conn, parent_id, "parent_id")
+    current_parent_id = parent_id
+
+    while current_parent_id is not None:
+        if current_parent_id == folder_id:
+            raise HTTPException(status_code=400, detail="Folder cannot be nested inside itself.")
+        row = conn.execute(
+            "SELECT parent_id FROM folders WHERE id = ?",
+            (current_parent_id,),
+        ).fetchone()
+        current_parent_id = row["parent_id"] if row else None
 
 init_database()
 
@@ -183,6 +248,123 @@ async def get_models():
 
     return {"models": unique_models}
 
+@app.get("/api/folders")
+async def list_folders():
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, name, parent_id, created_at, updated_at
+            FROM folders
+            ORDER BY name COLLATE NOCASE ASC, created_at ASC
+            """
+        ).fetchall()
+    return {"folders": [row_to_folder(row) for row in rows]}
+
+@app.post("/api/folders")
+async def create_folder(payload: FolderPayload):
+    folder_id = str(uuid4())
+    now = utc_now()
+    name = normalize_folder_name(payload.name)
+
+    with get_db() as conn:
+        validate_folder_reference(conn, payload.parent_id, "parent_id")
+        conn.execute(
+            """
+            INSERT INTO folders (id, name, parent_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (folder_id, name, payload.parent_id, now, now),
+        )
+        row = conn.execute(
+            """
+            SELECT id, name, parent_id, created_at, updated_at
+            FROM folders
+            WHERE id = ?
+            """,
+            (folder_id,),
+        ).fetchone()
+
+    return row_to_folder(row)
+
+@app.get("/api/folders/{folder_id}")
+async def get_folder(folder_id: str):
+    with get_db() as conn:
+        row = conn.execute(
+            """
+            SELECT id, name, parent_id, created_at, updated_at
+            FROM folders
+            WHERE id = ?
+            """,
+            (folder_id,),
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Folder not found.")
+
+    return row_to_folder(row)
+
+@app.put("/api/folders/{folder_id}")
+async def update_folder(folder_id: str, payload: FolderUpdate):
+    with get_db() as conn:
+        existing = conn.execute(
+            """
+            SELECT id, name, parent_id, created_at, updated_at
+            FROM folders
+            WHERE id = ?
+            """,
+            (folder_id,),
+        ).fetchone()
+
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Folder not found.")
+
+        name = (
+            normalize_folder_name(payload.name)
+            if field_was_provided(payload, "name")
+            else existing["name"]
+        )
+        parent_id = (
+            payload.parent_id
+            if field_was_provided(payload, "parent_id")
+            else existing["parent_id"]
+        )
+        validate_folder_parent(conn, folder_id, parent_id)
+
+        conn.execute(
+            """
+            UPDATE folders
+            SET name = ?, parent_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (name, parent_id, utc_now(), folder_id),
+        )
+        row = conn.execute(
+            """
+            SELECT id, name, parent_id, created_at, updated_at
+            FROM folders
+            WHERE id = ?
+            """,
+            (folder_id,),
+        ).fetchone()
+
+    return row_to_folder(row)
+
+@app.delete("/api/folders/{folder_id}")
+async def delete_folder(folder_id: str):
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT 1 FROM folders WHERE id = ?",
+            (folder_id,),
+        ).fetchone()
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Folder not found.")
+
+        conn.execute("UPDATE chats SET folder_id = NULL WHERE folder_id = ?", (folder_id,))
+        conn.execute("UPDATE folders SET parent_id = NULL WHERE parent_id = ?", (folder_id,))
+        conn.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+
+    return {"status": "success"}
+
 @app.get("/api/chats")
 async def list_chats():
     with get_db() as conn:
@@ -202,6 +384,7 @@ async def create_chat(payload: StoredChatPayload):
     title = (payload.title or "").strip() or default_chat_title(payload.messages)
 
     with get_db() as conn:
+        validate_folder_reference(conn, payload.folder_id)
         conn.execute(
             """
             INSERT INTO chats (id, title, model, messages, folder_id, summary, created_at, updated_at)
@@ -270,6 +453,12 @@ async def update_chat(chat_id: str, payload: StoredChatUpdate):
             if payload.title is not None and payload.title.strip()
             else existing["title"]
         )
+        folder_id = (
+            payload.folder_id
+            if field_was_provided(payload, "folder_id")
+            else existing["folder_id"]
+        )
+        validate_folder_reference(conn, folder_id)
 
         conn.execute(
             """
@@ -281,7 +470,7 @@ async def update_chat(chat_id: str, payload: StoredChatUpdate):
                 title,
                 payload.model if field_was_provided(payload, "model") else existing["model"],
                 dump_messages(messages),
-                payload.folder_id if field_was_provided(payload, "folder_id") else existing["folder_id"],
+                folder_id,
                 payload.summary if field_was_provided(payload, "summary") else existing["summary"],
                 utc_now(),
                 chat_id,
