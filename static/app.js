@@ -45,6 +45,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const moveChatModalCloseBtn = document.getElementById("move-chat-modal-close-btn");
     const moveChatModalCancelBtn = document.getElementById("move-chat-modal-cancel-btn");
     const moveChatModalSaveBtn = document.getElementById("move-chat-modal-save-btn");
+    const deleteChatModal = document.getElementById("delete-chat-modal");
+    const deleteChatMessage = document.getElementById("delete-chat-message");
+    const deleteChatModalCloseBtn = document.getElementById("delete-chat-modal-close-btn");
+    const deleteChatModalCancelBtn = document.getElementById("delete-chat-modal-cancel-btn");
+    const deleteChatModalConfirmBtn = document.getElementById("delete-chat-modal-confirm-btn");
 
     // App State
     let conversationHistory = [];
@@ -59,6 +64,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let savedFolders = [];
     let renameTarget = null;
     let moveChatTargetId = null;
+    let deleteChatTargetId = null;
 
     const greetings = [
         {
@@ -428,8 +434,25 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
         moveBtn.addEventListener("click", () => openMoveChatModal(chat.id));
 
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "chat-history-action danger";
+        deleteBtn.title = `Delete ${chat.title}`;
+        deleteBtn.setAttribute("aria-label", deleteBtn.title);
+        deleteBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18"></path>
+                <path d="M8 6V4h8v2"></path>
+                <path d="M19 6l-1 14H6L5 6"></path>
+                <path d="M10 11v5"></path>
+                <path d="M14 11v5"></path>
+            </svg>
+        `;
+        deleteBtn.addEventListener("click", () => openDeleteChatModal(chat.id));
+
         actions.appendChild(renameBtn);
         actions.appendChild(moveBtn);
+        actions.appendChild(deleteBtn);
         item.appendChild(openBtn);
         item.appendChild(actions);
         return item;
@@ -711,6 +734,56 @@ document.addEventListener("DOMContentLoaded", () => {
         return savedChat;
     }
 
+    function openDeleteChatModal(chatId) {
+        const chat = findSavedChat(chatId);
+        if (!chat) return;
+
+        deleteChatTargetId = chatId;
+        deleteChatMessage.textContent = `Delete "${chat.title}" from history? This cannot be undone.`;
+        deleteChatModal.classList.remove("hidden");
+        deleteChatModalConfirmBtn.focus();
+    }
+
+    function closeDeleteChatModal() {
+        deleteChatModal.classList.add("hidden");
+        deleteChatMessage.textContent = "Delete this saved session?";
+        deleteChatTargetId = null;
+    }
+
+    async function deleteSavedChat() {
+        if (!deleteChatTargetId) return;
+
+        try {
+            deleteChatModalConfirmBtn.disabled = true;
+            const response = await fetch(`/api/chats/${encodeURIComponent(deleteChatTargetId)}`, {
+                method: "DELETE"
+            });
+
+            if (!response.ok) throw new Error("Unable to delete session");
+
+            if (deleteChatTargetId === currentChatId) {
+                conversationHistory = [];
+                currentChatId = null;
+                currentChatTitle = "";
+                currentChatSummary = null;
+                currentChatFolderId = null;
+                currentChatModel = null;
+                chatMessages.innerHTML = "";
+                mainContent.classList.add("welcome-mode");
+                renderWelcomeMessage();
+                validateSendState();
+            }
+
+            closeDeleteChatModal();
+            await loadChatHistory();
+        } catch (error) {
+            console.error("Delete chat failed:", error);
+            alert("Could not delete that session.");
+        } finally {
+            deleteChatModalConfirmBtn.disabled = false;
+        }
+    }
+
     async function moveCurrentChatToFolder(folderId) {
         if (!currentChatId) return;
 
@@ -756,6 +829,9 @@ document.addEventListener("DOMContentLoaded", () => {
             closeMoveChatModal();
         }
     });
+    deleteChatModalCloseBtn.addEventListener("click", closeDeleteChatModal);
+    deleteChatModalCancelBtn.addEventListener("click", closeDeleteChatModal);
+    deleteChatModalConfirmBtn.addEventListener("click", deleteSavedChat);
 
     // 4. Input Textarea Auto-growth & validation
     userInput.addEventListener("input", () => {

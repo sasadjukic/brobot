@@ -314,6 +314,11 @@ html, body {
     background: rgba(243, 210, 190, 0.42);
 }
 
+.chat-history-action.danger:hover {
+    color: #b73524;
+    background: rgba(183, 53, 36, 0.1);
+}
+
 .chat-folder-group {
     display: flex;
     flex-direction: column;
@@ -479,6 +484,18 @@ html, body {
 .btn-secondary:hover:not(:disabled) {
     background: rgba(243, 210, 190, 0.55);
     border-color: rgba(198, 95, 61, 0.3);
+}
+
+.btn-danger {
+    background: #b73524;
+    color: #fffdfc;
+    box-shadow: 0 4px 14px rgba(183, 53, 36, 0.22);
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #982d20;
+    box-shadow: 0 6px 20px rgba(183, 53, 36, 0.32);
+    transform: translateY(-1px);
 }
 
 .icon-left {

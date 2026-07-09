@@ -229,6 +229,23 @@
         </div>
     </div>
 
+    <!-- Delete Session Modal -->
+    <div class="modal-backdrop hidden" id="delete-chat-modal">
+        <div class="modal-card modal-card-small">
+            <div class="modal-header">
+                <h3>Delete Session</h3>
+                <button class="btn-close" id="delete-chat-modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-desc" id="delete-chat-message">Delete this saved session?</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="delete-chat-modal-cancel-btn">Cancel</button>
+                <button class="btn btn-danger" id="delete-chat-modal-confirm-btn">Delete</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Script file -->
     <script src="app.js"></script>
 </body>
