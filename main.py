@@ -1,15 +1,20 @@
 import os
 import json
+import sqlite3
 import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
 import httpx
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 
 app = FastAPI(title="BroBot")
+DB_PATH = Path(os.environ.get("BROBOT_DB_PATH", "data/brobot.sqlite3"))
 
 # CORS middleware for testing / local requests
 app.add_middleware(
@@ -33,6 +38,80 @@ class ChatPayload(BaseModel):
     model: str
     messages: List[ChatMessage]
     use_context: bool = False
+
+class StoredChatPayload(BaseModel):
+    title: Optional[str] = None
+    model: Optional[str] = None
+    messages: List[ChatMessage] = Field(default_factory=list)
+    folder_id: Optional[str] = None
+
+class StoredChatUpdate(BaseModel):
+    title: Optional[str] = None
+    model: Optional[str] = None
+    messages: Optional[List[ChatMessage]] = None
+    folder_id: Optional[str] = None
+
+def utc_now():
+    return datetime.now(timezone.utc).isoformat()
+
+def get_db():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_database():
+    with get_db() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chats (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                model TEXT,
+                messages TEXT NOT NULL,
+                folder_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chats_updated_at ON chats(updated_at DESC)"
+        )
+
+def dump_messages(messages: List[ChatMessage]):
+    return json.dumps([message.dict() for message in messages], ensure_ascii=False)
+
+def load_messages(raw_messages: str):
+    try:
+        messages = json.loads(raw_messages)
+        return messages if isinstance(messages, list) else []
+    except json.JSONDecodeError:
+        return []
+
+def default_chat_title(messages: List[ChatMessage]):
+    for message in messages:
+        if message.role == "user" and message.content.strip():
+            first_line = message.content.strip().splitlines()[0]
+            return first_line[:57] + "..." if len(first_line) > 60 else first_line
+    return "Untitled chat"
+
+def row_to_chat(row: sqlite3.Row, include_messages=False):
+    messages = load_messages(row["messages"])
+    chat = {
+        "id": row["id"],
+        "title": row["title"],
+        "model": row["model"],
+        "folder_id": row["folder_id"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "message_count": len(messages),
+    }
+    if include_messages:
+        chat["messages"] = messages
+    return chat
+
+init_database()
 
 @app.get("/api/models")
 async def get_models():
@@ -87,6 +166,129 @@ async def get_models():
         unique_models = ["llama3:latest", "mistral:latest", "gemma:latest"]
 
     return {"models": unique_models}
+
+@app.get("/api/chats")
+async def list_chats():
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, title, model, messages, folder_id, created_at, updated_at
+            FROM chats
+            ORDER BY updated_at DESC
+            """
+        ).fetchall()
+    return {"chats": [row_to_chat(row) for row in rows]}
+
+@app.post("/api/chats")
+async def create_chat(payload: StoredChatPayload):
+    chat_id = str(uuid4())
+    now = utc_now()
+    title = (payload.title or "").strip() or default_chat_title(payload.messages)
+
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO chats (id, title, model, messages, folder_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                chat_id,
+                title,
+                payload.model,
+                dump_messages(payload.messages),
+                payload.folder_id,
+                now,
+                now,
+            ),
+        )
+        row = conn.execute(
+            """
+            SELECT id, title, model, messages, folder_id, created_at, updated_at
+            FROM chats
+            WHERE id = ?
+            """,
+            (chat_id,),
+        ).fetchone()
+
+    return row_to_chat(row, include_messages=True)
+
+@app.get("/api/chats/{chat_id}")
+async def get_chat(chat_id: str):
+    with get_db() as conn:
+        row = conn.execute(
+            """
+            SELECT id, title, model, messages, folder_id, created_at, updated_at
+            FROM chats
+            WHERE id = ?
+            """,
+            (chat_id,),
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Chat not found.")
+
+    return row_to_chat(row, include_messages=True)
+
+@app.put("/api/chats/{chat_id}")
+async def update_chat(chat_id: str, payload: StoredChatUpdate):
+    with get_db() as conn:
+        existing = conn.execute(
+            """
+            SELECT id, title, model, messages, folder_id, created_at, updated_at
+            FROM chats
+            WHERE id = ?
+            """,
+            (chat_id,),
+        ).fetchone()
+
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Chat not found.")
+
+        existing_messages = load_messages(existing["messages"])
+        messages = payload.messages if payload.messages is not None else [
+            ChatMessage(**message) for message in existing_messages
+        ]
+        title = (
+            payload.title.strip()
+            if payload.title is not None and payload.title.strip()
+            else existing["title"]
+        )
+
+        conn.execute(
+            """
+            UPDATE chats
+            SET title = ?, model = ?, messages = ?, folder_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                title,
+                payload.model if payload.model is not None else existing["model"],
+                dump_messages(messages),
+                payload.folder_id if payload.folder_id is not None else existing["folder_id"],
+                utc_now(),
+                chat_id,
+            ),
+        )
+        row = conn.execute(
+            """
+            SELECT id, title, model, messages, folder_id, created_at, updated_at
+            FROM chats
+            WHERE id = ?
+            """,
+            (chat_id,),
+        ).fetchone()
+
+    return row_to_chat(row, include_messages=True)
+
+@app.delete("/api/chats/{chat_id}")
+async def delete_chat(chat_id: str):
+    with get_db() as conn:
+        result = conn.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
+
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Chat not found.")
+
+    return {"status": "success"}
 
 @app.post("/api/chat")
 async def chat(payload: ChatPayload):

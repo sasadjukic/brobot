@@ -8,6 +8,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const sidebar = document.querySelector(".sidebar");
     const sidebarToggle = document.getElementById("sidebar-toggle");
     const newChatBtn = document.getElementById("new-chat-btn");
+    const chatHistoryList = document.getElementById("chat-history-list");
 
     // Context UI elements
     const contextMenuBtn = document.getElementById("context-menu-btn");
@@ -27,6 +28,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let conversationHistory = [];
     let isGenerating = false;
     let hasContextLoaded = false;
+    let currentChatId = null;
+    let currentChatTitle = "";
 
     const greetings = [
         {
@@ -75,6 +78,7 @@ document.addEventListener("DOMContentLoaded", () => {
     restoreSidebarState();
     renderWelcomeMessage();
     fetchModels();
+    loadChatHistory();
     updateContextState();
 
     function setSidebarCollapsed(collapsed) {
@@ -194,6 +198,133 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     modelSelect.addEventListener("change", handleModelChange);
+
+    async function loadChatHistory() {
+        if (!chatHistoryList) return;
+
+        try {
+            const response = await fetch("/api/chats");
+            if (!response.ok) throw new Error("Unable to load saved sessions");
+
+            const data = await response.json();
+            renderChatHistory(data.chats || []);
+        } catch (error) {
+            console.error("Chat history load failed:", error);
+            chatHistoryList.innerHTML = '<div class="chat-history-empty">Saved sessions unavailable.</div>';
+        }
+    }
+
+    function renderChatHistory(chats) {
+        if (!chatHistoryList) return;
+
+        chatHistoryList.innerHTML = "";
+
+        if (!chats.length) {
+            chatHistoryList.innerHTML = '<div class="chat-history-empty">No saved sessions yet.</div>';
+            return;
+        }
+
+        chats.forEach(chat => {
+            const item = document.createElement("button");
+            item.type = "button";
+            item.className = `chat-history-item${chat.id === currentChatId ? " active" : ""}`;
+            item.dataset.chatId = chat.id;
+            item.title = chat.title;
+            item.innerHTML = `
+                <span class="chat-history-title">${escapeHtml(chat.title)}</span>
+                <span class="chat-history-meta">${formatChatMeta(chat)}</span>
+            `;
+            item.addEventListener("click", () => openChat(chat.id));
+            chatHistoryList.appendChild(item);
+        });
+    }
+
+    function formatChatMeta(chat) {
+        const count = Number(chat.message_count || 0);
+        const messageLabel = count === 1 ? "1 message" : `${count} messages`;
+        const updatedAt = new Date(chat.updated_at);
+
+        if (Number.isNaN(updatedAt.getTime())) {
+            return messageLabel;
+        }
+
+        return `${messageLabel} - ${updatedAt.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+    }
+
+    async function openChat(chatId) {
+        if (isGenerating) return;
+
+        try {
+            const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}`);
+            if (!response.ok) throw new Error("Unable to load saved session");
+
+            const chat = await response.json();
+            currentChatId = chat.id;
+            currentChatTitle = chat.title || "";
+            conversationHistory = Array.isArray(chat.messages) ? chat.messages : [];
+
+            if (chat.model && Array.from(modelSelect.options).some(option => option.value === chat.model)) {
+                modelSelect.value = chat.model;
+            }
+
+            renderConversation();
+            validateSendState();
+            loadChatHistory();
+        } catch (error) {
+            console.error("Open chat failed:", error);
+            alert("Could not open that saved session.");
+        }
+    }
+
+    function renderConversation() {
+        chatMessages.innerHTML = "";
+
+        if (!conversationHistory.length) {
+            mainContent.classList.add("welcome-mode");
+            renderWelcomeMessage();
+            return;
+        }
+
+        mainContent.classList.remove("welcome-mode");
+        conversationHistory.forEach(message => {
+            appendMessage(message.role, message.content);
+        });
+    }
+
+    function deriveCurrentChatTitle() {
+        const firstUserMessage = conversationHistory.find(message => message.role === "user" && message.content.trim());
+        if (!firstUserMessage) return "Untitled chat";
+
+        const firstLine = firstUserMessage.content.trim().split("\n")[0];
+        return firstLine.length > 60 ? `${firstLine.slice(0, 57)}...` : firstLine;
+    }
+
+    async function saveCurrentChat(model) {
+        if (!conversationHistory.length) return;
+
+        const payload = {
+            title: currentChatTitle || deriveCurrentChatTitle(),
+            model,
+            messages: conversationHistory
+        };
+
+        try {
+            const response = await fetch(currentChatId ? `/api/chats/${encodeURIComponent(currentChatId)}` : "/api/chats", {
+                method: currentChatId ? "PUT" : "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) throw new Error("Unable to save session");
+
+            const savedChat = await response.json();
+            currentChatId = savedChat.id;
+            currentChatTitle = savedChat.title;
+            loadChatHistory();
+        } catch (error) {
+            console.error("Chat save failed:", error);
+        }
+    }
 
     // 4. Input Textarea Auto-growth & validation
     userInput.addEventListener("input", () => {
@@ -333,6 +464,7 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error("Streaming chat failed:", error);
             contentDiv.innerHTML = `<span class="status-offline">Communication error occurred. Please make sure Ollama server is running.</span>`;
         } finally {
+            await saveCurrentChat(model);
             isGenerating = false;
             validateSendState();
             scrollToBottom();
@@ -461,10 +593,13 @@ document.addEventListener("DOMContentLoaded", () => {
     // 7. Reset sessions
     function clearSession() {
         conversationHistory = [];
+        currentChatId = null;
+        currentChatTitle = "";
         chatMessages.innerHTML = "";
         mainContent.classList.add("welcome-mode");
         renderWelcomeMessage();
         validateSendState();
+        loadChatHistory();
     }
 
     newChatBtn.addEventListener("click", clearSession);
