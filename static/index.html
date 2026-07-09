@@ -193,6 +193,42 @@
         </div>
     </div>
 
+    <!-- Rename Modal -->
+    <div class="modal-backdrop hidden" id="rename-modal">
+        <div class="modal-card modal-card-small">
+            <div class="modal-header">
+                <h3 id="rename-modal-title">Rename</h3>
+                <button class="btn-close" id="rename-modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label class="modal-label" id="rename-name-label" for="rename-name-input">Name</label>
+                <input id="rename-name-input" class="modal-input" type="text" autocomplete="off" maxlength="100">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="rename-modal-cancel-btn">Cancel</button>
+                <button class="btn btn-primary" id="rename-modal-save-btn">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Move Session Modal -->
+    <div class="modal-backdrop hidden" id="move-chat-modal">
+        <div class="modal-card modal-card-small">
+            <div class="modal-header">
+                <h3>Move Session</h3>
+                <button class="btn-close" id="move-chat-modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label class="modal-label" for="move-folder-select">Folder</label>
+                <select id="move-folder-select" class="modal-input"></select>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="move-chat-modal-cancel-btn">Cancel</button>
+                <button class="btn btn-primary" id="move-chat-modal-save-btn">Move</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Script file -->
     <script src="app.js"></script>
 </body>
