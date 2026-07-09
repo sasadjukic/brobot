@@ -32,6 +32,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const folderModalCreateBtn = document.getElementById("folder-modal-create-btn");
     const folderNameInput = document.getElementById("folder-name-input");
 
+    // Library action modal elements
+    const renameModal = document.getElementById("rename-modal");
+    const renameModalTitle = document.getElementById("rename-modal-title");
+    const renameNameLabel = document.getElementById("rename-name-label");
+    const renameNameInput = document.getElementById("rename-name-input");
+    const renameModalCloseBtn = document.getElementById("rename-modal-close-btn");
+    const renameModalCancelBtn = document.getElementById("rename-modal-cancel-btn");
+    const renameModalSaveBtn = document.getElementById("rename-modal-save-btn");
+    const moveChatModal = document.getElementById("move-chat-modal");
+    const moveFolderSelect = document.getElementById("move-folder-select");
+    const moveChatModalCloseBtn = document.getElementById("move-chat-modal-close-btn");
+    const moveChatModalCancelBtn = document.getElementById("move-chat-modal-cancel-btn");
+    const moveChatModalSaveBtn = document.getElementById("move-chat-modal-save-btn");
+
     // App State
     let conversationHistory = [];
     let isGenerating = false;
@@ -43,6 +57,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentChatModel = null;
     let savedChats = [];
     let savedFolders = [];
+    let renameTarget = null;
+    let moveChatTargetId = null;
 
     const greetings = [
         {
@@ -322,9 +338,24 @@ document.addEventListener("DOMContentLoaded", () => {
         assignBtn.disabled = !currentChatId || currentChatFolderId === id;
         assignBtn.addEventListener("click", () => moveCurrentChatToFolder(id));
 
+        const renameBtn = document.createElement("button");
+        renameBtn.type = "button";
+        renameBtn.className = "chat-folder-action";
+        renameBtn.title = `Rename ${name}`;
+        renameBtn.setAttribute("aria-label", renameBtn.title);
+        renameBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 20h9"></path>
+                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+            </svg>
+        `;
+        renameBtn.disabled = !id;
+        renameBtn.addEventListener("click", () => openRenameModal("folder", id));
+
         header.appendChild(title);
         header.appendChild(count);
         header.appendChild(assignBtn);
+        header.appendChild(renameBtn);
         group.appendChild(header);
 
         const items = document.createElement("div");
@@ -346,11 +377,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function renderChatHistoryItem(chat) {
-        const item = document.createElement("button");
-        item.type = "button";
+        const item = document.createElement("div");
         item.className = `chat-history-item${chat.id === currentChatId ? " active" : ""}`;
         item.dataset.chatId = chat.id;
         item.title = chat.title;
+
+        const openBtn = document.createElement("button");
+        openBtn.type = "button";
+        openBtn.className = "chat-history-open";
 
         const title = document.createElement("span");
         title.className = "chat-history-title";
@@ -360,9 +394,44 @@ document.addEventListener("DOMContentLoaded", () => {
         meta.className = "chat-history-meta";
         meta.textContent = formatChatMeta(chat);
 
-        item.appendChild(title);
-        item.appendChild(meta);
-        item.addEventListener("click", () => openChat(chat.id));
+        openBtn.appendChild(title);
+        openBtn.appendChild(meta);
+        openBtn.addEventListener("click", () => openChat(chat.id));
+
+        const actions = document.createElement("div");
+        actions.className = "chat-history-actions";
+
+        const renameBtn = document.createElement("button");
+        renameBtn.type = "button";
+        renameBtn.className = "chat-history-action";
+        renameBtn.title = `Rename ${chat.title}`;
+        renameBtn.setAttribute("aria-label", renameBtn.title);
+        renameBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 20h9"></path>
+                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+            </svg>
+        `;
+        renameBtn.addEventListener("click", () => openRenameModal("chat", chat.id));
+
+        const moveBtn = document.createElement("button");
+        moveBtn.type = "button";
+        moveBtn.className = "chat-history-action";
+        moveBtn.title = `Move ${chat.title}`;
+        moveBtn.setAttribute("aria-label", moveBtn.title);
+        moveBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5z"></path>
+                <path d="m12 10 3 3-3 3"></path>
+                <path d="M8 13h7"></path>
+            </svg>
+        `;
+        moveBtn.addEventListener("click", () => openMoveChatModal(chat.id));
+
+        actions.appendChild(renameBtn);
+        actions.appendChild(moveBtn);
+        item.appendChild(openBtn);
+        item.appendChild(actions);
         return item;
     }
 
@@ -496,30 +565,157 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    async function moveCurrentChatToFolder(folderId) {
-        if (!currentChatId) return;
+    function findSavedChat(chatId) {
+        return savedChats.find(chat => chat.id === chatId);
+    }
+
+    function findSavedFolder(folderId) {
+        return savedFolders.find(folder => folder.id === folderId);
+    }
+
+    function getFolderPath(folder) {
+        const names = [folder.name];
+        let parentId = folder.parent_id;
+
+        while (parentId) {
+            const parent = findSavedFolder(parentId);
+            if (!parent) break;
+            names.unshift(parent.name);
+            parentId = parent.parent_id;
+        }
+
+        return names.join(" / ");
+    }
+
+    function openRenameModal(type, id) {
+        const target = type === "chat" ? findSavedChat(id) : findSavedFolder(id);
+        if (!target) return;
+
+        renameTarget = { type, id };
+        renameModalTitle.textContent = type === "chat" ? "Rename Session" : "Rename Folder";
+        renameNameLabel.textContent = type === "chat" ? "Session title" : "Folder name";
+        renameNameInput.value = type === "chat" ? target.title : target.name;
+        renameModal.classList.remove("hidden");
+        renameNameInput.focus();
+        renameNameInput.select();
+    }
+
+    function closeRenameModal() {
+        renameModal.classList.add("hidden");
+        renameNameInput.value = "";
+        renameTarget = null;
+    }
+
+    async function saveRename() {
+        if (!renameTarget) return;
+
+        const name = renameNameInput.value.trim();
+        if (!name) return;
+
+        const isChat = renameTarget.type === "chat";
+        const url = isChat
+            ? `/api/chats/${encodeURIComponent(renameTarget.id)}`
+            : `/api/folders/${encodeURIComponent(renameTarget.id)}`;
+        const body = isChat ? { title: name } : { name };
 
         try {
-            const response = await fetch(`/api/chats/${encodeURIComponent(currentChatId)}`, {
+            renameModalSaveBtn.disabled = true;
+            const response = await fetch(url, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    title: currentChatTitle || deriveCurrentChatTitle(),
-                    model: currentChatModel || modelSelect.value || null,
-                    messages: conversationHistory,
-                    folder_id: folderId,
-                    summary: currentChatSummary
-                })
+                body: JSON.stringify(body)
             });
 
-            if (!response.ok) throw new Error("Unable to move session");
+            if (!response.ok) throw new Error("Unable to rename item");
 
-            const savedChat = await response.json();
+            const savedItem = await response.json();
+            if (isChat && savedItem.id === currentChatId) {
+                currentChatTitle = savedItem.title;
+            }
+
+            closeRenameModal();
+            await loadChatHistory();
+        } catch (error) {
+            console.error("Rename failed:", error);
+            alert("Could not rename that item.");
+        } finally {
+            renameModalSaveBtn.disabled = false;
+        }
+    }
+
+    function openMoveChatModal(chatId) {
+        const chat = findSavedChat(chatId);
+        if (!chat) return;
+
+        moveChatTargetId = chatId;
+        moveFolderSelect.innerHTML = "";
+
+        const unfiledOption = document.createElement("option");
+        unfiledOption.value = "";
+        unfiledOption.textContent = "Unfiled";
+        moveFolderSelect.appendChild(unfiledOption);
+
+        savedFolders.forEach(folder => {
+            const option = document.createElement("option");
+            option.value = folder.id;
+            option.textContent = getFolderPath(folder);
+            moveFolderSelect.appendChild(option);
+        });
+
+        moveFolderSelect.value = chat.folder_id || "";
+        moveChatModal.classList.remove("hidden");
+        moveFolderSelect.focus();
+    }
+
+    function closeMoveChatModal() {
+        moveChatModal.classList.add("hidden");
+        moveFolderSelect.innerHTML = "";
+        moveChatTargetId = null;
+    }
+
+    async function saveMoveChat() {
+        if (!moveChatTargetId) return;
+
+        const folderId = moveFolderSelect.value || null;
+
+        try {
+            moveChatModalSaveBtn.disabled = true;
+            await moveSavedChatToFolder(moveChatTargetId, folderId);
+            closeMoveChatModal();
+        } catch (error) {
+            console.error("Move chat failed:", error);
+            alert("Could not move that session.");
+        } finally {
+            moveChatModalSaveBtn.disabled = false;
+        }
+    }
+
+    async function moveSavedChatToFolder(chatId, folderId) {
+        const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ folder_id: folderId })
+        });
+
+        if (!response.ok) throw new Error("Unable to move session");
+
+        const savedChat = await response.json();
+        if (savedChat.id === currentChatId) {
             currentChatFolderId = savedChat.folder_id || null;
             currentChatTitle = savedChat.title || currentChatTitle;
             currentChatSummary = savedChat.summary || null;
             currentChatModel = savedChat.model || currentChatModel;
-            await loadChatHistory();
+        }
+
+        await loadChatHistory();
+        return savedChat;
+    }
+
+    async function moveCurrentChatToFolder(folderId) {
+        if (!currentChatId) return;
+
+        try {
+            await moveSavedChatToFolder(currentChatId, folderId);
         } catch (error) {
             console.error("Move chat failed:", error);
             alert("Could not move the active session.");
@@ -536,6 +732,28 @@ document.addEventListener("DOMContentLoaded", () => {
             createFolder();
         } else if (event.key === "Escape") {
             closeFolderModal();
+        }
+    });
+    renameModalCloseBtn.addEventListener("click", closeRenameModal);
+    renameModalCancelBtn.addEventListener("click", closeRenameModal);
+    renameModalSaveBtn.addEventListener("click", saveRename);
+    renameNameInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            saveRename();
+        } else if (event.key === "Escape") {
+            closeRenameModal();
+        }
+    });
+    moveChatModalCloseBtn.addEventListener("click", closeMoveChatModal);
+    moveChatModalCancelBtn.addEventListener("click", closeMoveChatModal);
+    moveChatModalSaveBtn.addEventListener("click", saveMoveChat);
+    moveFolderSelect.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            saveMoveChat();
+        } else if (event.key === "Escape") {
+            closeMoveChatModal();
         }
     });
 

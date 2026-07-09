@@ -236,12 +236,10 @@ html, body {
     border-radius: 8px;
     background: transparent;
     color: var(--text-secondary);
-    cursor: pointer;
     display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 2px;
-    padding: 8px 10px;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
     text-align: left;
     transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
@@ -255,6 +253,22 @@ html, body {
     background: rgba(243, 210, 190, 0.48);
     border-color: rgba(198, 95, 61, 0.26);
     color: var(--text-primary);
+}
+
+.chat-history-open {
+    min-width: 0;
+    flex: 1;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 5px 6px;
+    text-align: left;
 }
 
 .chat-history-title {
@@ -272,6 +286,32 @@ html, body {
     color: var(--text-muted);
     font-family: var(--font-mono);
     font-size: 0.68rem;
+}
+
+.chat-history-actions {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.chat-history-action {
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.chat-history-action:hover {
+    color: var(--accent-purple);
+    background: rgba(243, 210, 190, 0.42);
 }
 
 .chat-folder-group {
