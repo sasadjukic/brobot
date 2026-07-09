@@ -30,6 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let hasContextLoaded = false;
     let currentChatId = null;
     let currentChatTitle = "";
+    let currentChatSummary = null;
 
     const greetings = [
         {
@@ -261,6 +262,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const chat = await response.json();
             currentChatId = chat.id;
             currentChatTitle = chat.title || "";
+            currentChatSummary = chat.summary || null;
             conversationHistory = Array.isArray(chat.messages) ? chat.messages : [];
 
             if (chat.model && Array.from(modelSelect.options).some(option => option.value === chat.model)) {
@@ -305,7 +307,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const payload = {
             title: currentChatTitle || deriveCurrentChatTitle(),
             model,
-            messages: conversationHistory
+            messages: conversationHistory,
+            summary: currentChatSummary
         };
 
         try {
@@ -320,6 +323,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const savedChat = await response.json();
             currentChatId = savedChat.id;
             currentChatTitle = savedChat.title;
+            currentChatSummary = savedChat.summary || null;
             loadChatHistory();
         } catch (error) {
             console.error("Chat save failed:", error);
@@ -595,6 +599,7 @@ document.addEventListener("DOMContentLoaded", () => {
         conversationHistory = [];
         currentChatId = null;
         currentChatTitle = "";
+        currentChatSummary = null;
         chatMessages.innerHTML = "";
         mainContent.classList.add("welcome-mode");
         renderWelcomeMessage();
